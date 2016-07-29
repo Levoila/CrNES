@@ -4,7 +4,7 @@ project( CrNES )
 set( CMAKE_AUTOMOC ON )
 set( CMAKE_INCLUDE_CURRENT_DIR ON )
 
-set( HEADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include )
+set( HEADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/include/nes )
 
 find_package( Qt5Widgets REQUIRED )
 find_package( OpenGL REQUIRED )

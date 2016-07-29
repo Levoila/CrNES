@@ -39,7 +39,5 @@ void MainWindow::paintGL()
 	QOpenGLFunctions* f = QOpenGLContext::currentContext()->functions();
 	f->glClear(GL_COLOR_BUFFER_BIT);
 	
-	glDrawPixels(nesWidth, nesHeight, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
-
-    qDebug() << "paint";
+    glDrawPixels(nesWidth, nesHeight, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
 }
