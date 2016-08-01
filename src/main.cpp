@@ -8,14 +8,14 @@
 
 int main(int argc, char** argv)
 {
-	QApplication a(argc, argv);
+    QApplication a(argc, argv);
 
-	qDebug() << "Hello, world";
+    qDebug() << "Hello, world";
 
-	MainWindow window;
+    MainWindow window;
     window.show();
 
-    CPU cpu;
+    Cpu cpu;
 
-	return a.exec();
+    return a.exec();
 }

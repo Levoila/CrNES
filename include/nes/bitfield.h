@@ -20,6 +20,11 @@ struct Bit
     {
         return (data & mask);
     }
+
+    operator int() const
+    {
+        return (data & mask) > 0 ? 1 : 0;
+    }
 };
 
 union Bitfield
