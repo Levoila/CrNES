@@ -27,7 +27,6 @@ void MainWindow::initializeGL()
 void MainWindow::resizeGL(int w, int h)
 {
     qDebug() << "Resize to " << "(" << w << ", " << h << ")";
-    QOpenGLFunctions* f = QOpenGLContext::currentContext()->functions();
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();

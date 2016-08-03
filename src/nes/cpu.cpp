@@ -1,10 +1,13 @@
 #include "cpu.h"
 
 #include <iostream>
+#include <cassert>
 
 Cpu::Cpu()
-    :cycleCount(0), resetSignal(true), S(0xFD), PC(0xC000), X(0), Y(0), A(0)
+    : PC(0xC000), A(0), X(0), Y(0), S(0xFD), cycleCount(0), resetSignal(true), logger("cpu_log.txt")
 {
+    P.raw = 0x34;
+
     generateOpcodes();
 }
 
@@ -13,28 +16,35 @@ void Cpu::tick()
     if (resetSignal) {
         resetSignal = false;
 
-        //Reset PPU
+        //TODO: Reset PPU
 
-        PC = mediator.read(0xFFFC) | (mediator.read(0xFFFD) << 8);
+        PC = bus->read(0xFFFC) | (bus->read(0xFFFD) << 8);
 
-        mediator.tick();
-        mediator.tick();
-        mediator.tick();
-        mediator.tick();
-        mediator.tick();
-        mediator.tick();
+        bus->tick();
+        bus->tick();
+        bus->tick();
+        bus->tick();
+        bus->tick();
+        bus->tick();
 
         return;
     }
 
-    auto opcode = opcodes[mediator.read(PC++)];
+    logger.setPC(PC);
+    uint8_t opId = bus->read(PC++);
+    auto opcode = opcodes[opId];
+
+    logger.addMemLocation(opId);
+    logger.setOpcode(opcode);
+    logger.setRegisters(A, X, Y, S, P);
 
     uint16_t addr = getAddress(opcode.addrMode);
     executeOp(addr, opcode);
 
+    logger.finishInstruction();
     ++cycleCount;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::executeOp(uint16_t addr, Opcode opcode)
@@ -170,7 +180,7 @@ void Cpu::executeOp(uint16_t addr, Opcode opcode)
         RTS();
         break;
     case Op::SBC:
-        SBS(addr);
+        SBC(addr);
         break;
     case Op::SEC:
         SEC();
@@ -209,7 +219,9 @@ void Cpu::executeOp(uint16_t addr, Opcode opcode)
         TYA();
         break;
     default:
-        std::cout << "Bad opcode!" << std::endl;
+        std::cout << "Bad opcode enum : " << static_cast<int>(opcode.op) << std::endl;
+        assert(false);
+        break;
     }
 }
 
@@ -219,7 +231,7 @@ uint16_t Cpu::getAddress(AddrMode addrMode)
 
     switch (addrMode) {
     case AddrMode::IMPLICIT:
-        addr = immediateAM();
+        addr = implicitAM();
         break;
     case AddrMode::ACCUMULATOR:
         addr = accumulatorAM();
@@ -259,6 +271,8 @@ uint16_t Cpu::getAddress(AddrMode addrMode)
         break;
     default:
         std::cout << "Bad Addressing Mode!" << std::endl;
+        assert(false);
+        break;
     }
 
     return addr;
@@ -294,6 +308,9 @@ void Cpu::generateOpcodes()
     opcodes[0x16] = {Op::ASL, AddrMode::ZERO_PAGE_X};
     opcodes[0x0E] = {Op::ASL, AddrMode::ABSOLUTE};
     opcodes[0x1E] = {Op::ASL, AddrMode::ABSOLUTE_X};
+
+    //BCC
+    opcodes[0x90] = {Op::BCC, AddrMode::RELATIVE};
 
     //BCS
     opcodes[0xB0] = {Op::BCS, AddrMode::RELATIVE};
@@ -409,9 +426,9 @@ void Cpu::generateOpcodes()
     //LDX
     opcodes[0xA2] = {Op::LDX, AddrMode::IMMEDIATE};
     opcodes[0xA6] = {Op::LDX, AddrMode::ZERO_PAGE};
-    opcodes[0xB6] = {Op::LDX, AddrMode::ZERO_PAGE_X};
+    opcodes[0xB6] = {Op::LDX, AddrMode::ZERO_PAGE_Y};
     opcodes[0xAE] = {Op::LDX, AddrMode::ABSOLUTE};
-    opcodes[0xBE] = {Op::LDX, AddrMode::ABSOLUTE_X};
+    opcodes[0xBE] = {Op::LDX, AddrMode::ABSOLUTE_Y};
 
     //LDY
     opcodes[0xA0] = {Op::LDY, AddrMode::IMMEDIATE};
@@ -421,7 +438,7 @@ void Cpu::generateOpcodes()
     opcodes[0xBC] = {Op::LDY, AddrMode::ABSOLUTE_X};
 
     //LSR
-    opcodes[0x4A] = {Op::LSR, AddrMode::IMMEDIATE};
+    opcodes[0x4A] = {Op::LSR, AddrMode::ACCUMULATOR};
     opcodes[0x46] = {Op::LSR, AddrMode::ZERO_PAGE};
     opcodes[0x56] = {Op::LSR, AddrMode::ZERO_PAGE_X};
     opcodes[0x4E] = {Op::LSR, AddrMode::ABSOLUTE};
@@ -429,6 +446,34 @@ void Cpu::generateOpcodes()
 
     //NOP
     opcodes[0xEA] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0x04] = {Op::NOP, AddrMode::ZERO_PAGE};
+    opcodes[0x0C] = {Op::NOP, AddrMode::ABSOLUTE};
+    opcodes[0x14] = {Op::NOP, AddrMode::ZERO_PAGE_X};
+    opcodes[0x1A] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0x1C] = {Op::NOP, AddrMode::ABSOLUTE_X};
+    opcodes[0x34] = {Op::NOP, AddrMode::ZERO_PAGE_X};
+    opcodes[0x3A] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0x3C] = {Op::NOP, AddrMode::ABSOLUTE_X};
+    opcodes[0x44] = {Op::NOP, AddrMode::ZERO_PAGE};
+    opcodes[0x54] = {Op::NOP, AddrMode::ZERO_PAGE_X};
+    opcodes[0x5A] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0x5C] = {Op::NOP, AddrMode::ABSOLUTE_X};
+    opcodes[0x64] = {Op::NOP, AddrMode::ZERO_PAGE};
+    opcodes[0x74] = {Op::NOP, AddrMode::ZERO_PAGE_X};
+    opcodes[0x7A] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0x7C] = {Op::NOP, AddrMode::ABSOLUTE_X};
+    opcodes[0x80] = {Op::NOP, AddrMode::IMMEDIATE};
+    opcodes[0x82] = {Op::NOP, AddrMode::IMMEDIATE};
+    opcodes[0x89] = {Op::NOP, AddrMode::IMMEDIATE};
+    opcodes[0xC2] = {Op::NOP, AddrMode::IMMEDIATE};
+    opcodes[0xD4] = {Op::NOP, AddrMode::ZERO_PAGE_X};
+    opcodes[0xDA] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0xDC] = {Op::NOP, AddrMode::ABSOLUTE_X};
+    opcodes[0xE2] = {Op::NOP, AddrMode::IMMEDIATE};
+    opcodes[0xEA] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0xF4] = {Op::NOP, AddrMode::ZERO_PAGE_X};
+    opcodes[0xFA] = {Op::NOP, AddrMode::IMPLICIT};
+    opcodes[0xFC] = {Op::NOP, AddrMode::ABSOLUTE_X};
 
     //ORA
     opcodes[0x09] = {Op::ORA, AddrMode::IMMEDIATE};
@@ -453,15 +498,15 @@ void Cpu::generateOpcodes()
     opcodes[0x28] = {Op::PLP, AddrMode::IMPLICIT};
 
     //ROL
-    opcodes[0x2A] = {Op::ROL, AddrMode::IMMEDIATE};
+    opcodes[0x2A] = {Op::ROL, AddrMode::ACCUMULATOR};
     opcodes[0x26] = {Op::ROL, AddrMode::ZERO_PAGE};
     opcodes[0x36] = {Op::ROL, AddrMode::ZERO_PAGE_X};
     opcodes[0x2E] = {Op::ROL, AddrMode::ABSOLUTE};
     opcodes[0x3E] = {Op::ROL, AddrMode::ABSOLUTE_X};
 
     //ROR
-    opcodes[0x6A] = {Op::ROR, AddrMode::IMMEDIATE};
-    opcodes[0x55] = {Op::ROR, AddrMode::ZERO_PAGE};
+    opcodes[0x6A] = {Op::ROR, AddrMode::ACCUMULATOR};
+    opcodes[0x66] = {Op::ROR, AddrMode::ZERO_PAGE};
     opcodes[0x76] = {Op::ROR, AddrMode::ZERO_PAGE_X};
     opcodes[0x6E] = {Op::ROR, AddrMode::ABSOLUTE};
     opcodes[0x7E] = {Op::ROR, AddrMode::ABSOLUTE_X};
@@ -474,6 +519,7 @@ void Cpu::generateOpcodes()
 
     //SBC
     opcodes[0xE9] = {Op::SBC, AddrMode::IMMEDIATE};
+    opcodes[0xEB] = {Op::SBC, AddrMode::IMMEDIATE};
     opcodes[0xE5] = {Op::SBC, AddrMode::ZERO_PAGE};
     opcodes[0xF5] = {Op::SBC, AddrMode::ZERO_PAGE_X};
     opcodes[0xED] = {Op::SBC, AddrMode::ABSOLUTE};
@@ -502,7 +548,7 @@ void Cpu::generateOpcodes()
 
     //STX
     opcodes[0x86] = {Op::STX, AddrMode::ZERO_PAGE};
-    opcodes[0x96] = {Op::STX, AddrMode::ZERO_PAGE_X};
+    opcodes[0x96] = {Op::STX, AddrMode::ZERO_PAGE_Y};
     opcodes[0x8E] = {Op::STX, AddrMode::ABSOLUTE};
 
     //STY
@@ -532,20 +578,19 @@ void Cpu::generateOpcodes()
 void Cpu::branchIf(uint16_t offsetAddr, bool condition)
 {
     if (condition) {
-        uint8_t data = mediator.read(offsetAddr);
+        uint8_t data = bus->read(offsetAddr);
         uint8_t PCL = static_cast<uint8_t>(PC);
         uint8_t result = PCL + data;
 
-        PC += data;
+        PC += static_cast<int8_t>(data); //Offset is SIGNED
 
         if (!(((PCL & 0x80) ^ (data & 0x80)) || ((PCL & 0x80) == (result & 0x80)))) {
-            mediator.tick();
+            bus->tick();
         }
-        mediator.tick();
-        mediator.tick();
+        bus->tick();
+        bus->tick();
     } else {
-        ++PC;
-        mediator.tick();
+        bus->tick();
     }
 }
 
@@ -564,48 +609,74 @@ uint16_t Cpu::accumulatorAM() const
 
 uint16_t Cpu::immediateAM()
 {
+    //TODO : This is no good. I don't think the call to read() could be optimized away by an empty
+    //version of the logger. There shouldn't be any side effects from the read as PC should be in ROM.
+    logger.addMemLocation(bus->read(PC));
     return PC++;
 }
 
 uint16_t Cpu::zeroPageAM()
 {
-    return mediator.read(PC++);
+    uint8_t addr = bus->read(PC++);
+    logger.addMemLocation(addr);
+    return addr;
 }
 
 uint16_t Cpu::zeroPageXAM()
 {
-    mediator.tick();
-    mediator.tick();
-    return static_cast<uint8_t>(mediator.read(PC++) + X);
+    bus->tick();
+    bus->tick();
+    uint8_t mem = bus->read(PC++);
+    logger.addMemLocation(mem);
+    return static_cast<uint8_t>(mem + X);
 }
 
 uint16_t Cpu::zeroPageYAM()
 {
-    mediator.tick();
-    mediator.tick();
-    return static_cast<uint8_t>(mediator.read(PC++) + Y);
+    bus->tick();
+    bus->tick();
+    uint8_t mem = bus->read(PC++);
+    logger.addMemLocation(mem);
+    return static_cast<uint8_t>(mem + Y);
 }
 
 uint16_t Cpu::relativeAM()
 {
-    return mediator.read(PC++);
+    //TODO : This is no good. I don't think the call to read() could be optimized away by an empty
+    //version of the logger. There shouldn't be any side effects from the read as PC should be in ROM.
+    logger.addMemLocation(bus->read(PC));
+    return PC++;
 }
 
 uint16_t Cpu::absoluteAM()
 {
-    mediator.tick();
-    mediator.tick();
-    return mediator.read(PC++) | (mediator.read(PC++) << 8);
+    bus->tick();
+    bus->tick();
+
+    uint8_t low = bus->read(PC++);
+    uint8_t high = bus->read(PC++);
+
+    logger.addMemLocation(low);
+    logger.addMemLocation(high);
+
+    return low | (high << 8);
 }
 
 uint16_t Cpu::absoluteXAM()
 {
-    uint16_t addr = mediator.read(PC++) | (mediator.read(PC++) << 8);
+    uint8_t low = bus->read(PC++);
+    uint8_t high = bus->read(PC++);
+    uint16_t addr = low | (high << 8);
 
-    mediator.tick();
-    mediator.tick();
+
+    logger.addMemLocation(low);
+    logger.addMemLocation(high);
+
+    bus->tick();
+    bus->tick();
     if ((addr & 0x00FF) + X > 0xFF) {
-        mediator.tick();
+        bus->read(addr + X - 0x100); //Dummy read
+        bus->tick();
     }
 
     return addr + X;
@@ -613,12 +684,19 @@ uint16_t Cpu::absoluteXAM()
 
 uint16_t Cpu::absoluteYAM()
 {
-    uint16_t addr = mediator.read(PC++) | (mediator.read(PC++) << 8);
+    uint8_t low = bus->read(PC++);
+    uint8_t high = bus->read(PC++);
+    uint16_t addr = low | (high << 8);
 
-    mediator.tick();
-    mediator.tick();
+
+    logger.addMemLocation(low);
+    logger.addMemLocation(high);
+
+    bus->tick();
+    bus->tick();
     if ((addr & 0x00FF) + Y > 0xFF) {
-        mediator.tick();
+        bus->read(addr + Y - 0x100); //Dummy read
+        bus->tick();
     }
 
     return addr + Y;
@@ -626,40 +704,50 @@ uint16_t Cpu::absoluteYAM()
 
 uint16_t Cpu::indirectAM()
 {
-    uint8_t low = mediator.read(PC++);
-    uint8_t high = mediator.read(PC++);
-    uint8_t addrLow = mediator.read(low | (high << 8));
-    uint8_t addrHigh = mediator.read(static_cast<uint8_t>(low + 1) | (high << 8)); //page wrapping
+    uint8_t low = bus->read(PC++);
+    uint8_t high = bus->read(PC++);
+    uint8_t addrLow = bus->read(low | (high << 8));
+    uint8_t addrHigh = bus->read(static_cast<uint8_t>(low + 1) | (high << 8)); //page wrapping
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    logger.addMemLocation(low);
+    logger.addMemLocation(high);
+
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 
     return addrLow | (addrHigh << 8);
 }
 
 uint16_t Cpu::indexedIndirectAM()
 {
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 
-    uint8_t base = mediator.read(PC++) + X;
-    return mediator.read(base) | (mediator.read(static_cast<uint8_t>(base + 1)) << 8); //page wrapping
+    uint8_t offset = bus->read(PC++);
+    uint8_t base = offset + X;
+
+    logger.addMemLocation(offset);
+
+    return bus->read(base) | (bus->read(static_cast<uint8_t>(base + 1)) << 8); //page wrapping
 }
 
 uint16_t Cpu::indirectIndexedAM()
 {
-    uint8_t base = mediator.read(PC++);
-    uint16_t addr = mediator.read(base) | (mediator.read(static_cast<uint8_t>(base + 1)) << 8); //page wrapping
+    uint8_t base = bus->read(PC++);
+    uint16_t addr = bus->read(base) | (bus->read(static_cast<uint8_t>(base + 1)) << 8); //page wrapping
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    logger.addMemLocation(base);
+
+    bus->tick();
+    bus->tick();
+    bus->tick();
     if ((addr & 0x00FF) + Y > 0xFF) {
-        mediator.tick();
+        bus->read(addr + Y - 0x100); //Dummy read
+        bus->tick();
     }
 
     return addr + Y;
@@ -667,14 +755,14 @@ uint16_t Cpu::indirectIndexedAM()
 
 void Cpu::ADC(uint16_t addr)
 {
-    uint8_t d = mediator.read(addr);
+    uint8_t d = bus->read(addr);
     uint16_t result = A + d + (P.C ? 1 : 0);
 
     P.C = result > 0xFF;
 
     bool a = A & 0x80;
-    bool b = (d + P.C) * 0x80;
-    bool r = result * 0x80;
+    bool b = (d + (P.C ? 1 : 0)) & 0x80;
+    bool r = result & 0x80;
     P.V = (r & !(a | b)) | (!r & a & b);
 
     A = static_cast<uint8_t>(result);
@@ -682,22 +770,22 @@ void Cpu::ADC(uint16_t addr)
     P.Z = A == 0;
     P.N = A & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::AND(uint16_t addr)
 {
-    A &= mediator.read(addr);
+    A &= bus->read(addr);
 
     P.Z = A == 0;
     P.N = A & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::ASL(uint16_t addr, AddrMode addrMode)
 {
-    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : mediator.read(addr);
+    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : bus->read(addr);
     uint8_t result = data << 1;
 
     P.C = data & 0x80;
@@ -707,8 +795,8 @@ void Cpu::ASL(uint16_t addr, AddrMode addrMode)
     if (addrMode == AddrMode::ACCUMULATOR) {
         A = result;
     } else {
-        mediator.write(addr, result);
-        mediator.tick();
+        bus->write(addr, result);
+        bus->tick();
     }
 }
 
@@ -729,11 +817,12 @@ void Cpu::BEQ(uint16_t addr)
 
 void Cpu::BIT(uint16_t addr)
 {
-    uint8_t result = A & mediator.read(addr);
+    uint8_t mem = bus->read(addr);
+    uint8_t result = A & mem;
 
     P.Z = result == 0;
-    P.V = result & 0x40;
-    P.N = result & 0x80;
+    P.V = mem & 0x40;
+    P.N = mem & 0x80;
 }
 
 void Cpu::BMI(uint16_t addr)
@@ -755,20 +844,20 @@ void Cpu::BRK(uint16_t addr)
 {
     ++PC;
 
-    mediator.write(0x100 + S--, PC >> 8);
-    mediator.write(0x100 + S--, PC);
-    mediator.write(0x100 + S--, P.raw | 0x30);
+    bus->write(0x100 + S--, PC >> 8);
+    bus->write(0x100 + S--, PC);
+    bus->write(0x100 + S--, P.raw | 0x30);
 
     P.B = true;
 
-    PC = mediator.read(0xFFFE) | (mediator.read(0xFFFF) << 8);
+    PC = bus->read(0xFFFE) | (bus->read(0xFFFF) << 8);
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::BVC(uint16_t addr)
@@ -784,30 +873,30 @@ void Cpu::BVS(uint16_t addr)
 void Cpu::CLC(uint16_t addr)
 {
     P.C = false;
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::CLD(uint16_t addr)
 {
     P.D = false;
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::CLI(uint16_t addr)
 {
     P.I = false;
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::CLV(uint16_t addr)
 {
     P.V = false;
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::CMP(uint16_t addr)
 {
-    uint8_t data = mediator.read(addr);
+    uint8_t data = bus->read(addr);
     uint8_t result = A - data;
 
     P.C = A >= data;
@@ -817,7 +906,7 @@ void Cpu::CMP(uint16_t addr)
 
 void Cpu::CPX(uint16_t addr)
 {
-    uint8_t data = mediator.read(addr);
+    uint8_t data = bus->read(addr);
     uint8_t result = X - data;
 
     P.C = X >= data;
@@ -827,7 +916,7 @@ void Cpu::CPX(uint16_t addr)
 
 void Cpu::CPY(uint16_t addr)
 {
-    uint8_t data = mediator.read(addr);
+    uint8_t data = bus->read(addr);
     uint8_t result = Y - data;
 
     P.C = Y >= data;
@@ -837,13 +926,13 @@ void Cpu::CPY(uint16_t addr)
 
 void Cpu::DEC(uint16_t addr)
 {
-    uint8_t result = mediator.read(addr) - 1;
-    mediator.write(addr, result);
+    uint8_t result = bus->read(addr) - 1;
+    bus->write(addr, result);
 
     P.Z = result == 0;
     P.N = result & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::DEX()
@@ -853,7 +942,7 @@ void Cpu::DEX()
     P.Z = X == 0;
     P.N = X & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::DEY()
@@ -863,12 +952,12 @@ void Cpu::DEY()
     P.Z = Y == 0;
     P.N = Y & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::EOR(uint16_t addr)
 {
-    A ^= mediator.read(addr);
+    A ^= bus->read(addr);
 
     P.Z = A == 0;
     P.N = A & 0x80;
@@ -876,14 +965,14 @@ void Cpu::EOR(uint16_t addr)
 
 void Cpu::INC(uint16_t addr)
 {
-    uint8_t result = mediator.read(addr) + 1;
-    mediator.write(addr, result);
+    uint8_t result = bus->read(addr) + 1;
+    bus->write(addr, result);
 
     P.Z = result == 0;
     P.N = result & 0x80;
 
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::INX()
@@ -893,7 +982,7 @@ void Cpu::INX()
     P.Z = X == 0;
     P.N = X & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::INY()
@@ -903,7 +992,7 @@ void Cpu::INY()
     P.Z = Y == 0;
     P.N = Y & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::JMP(uint16_t addr)
@@ -913,19 +1002,19 @@ void Cpu::JMP(uint16_t addr)
 
 void Cpu::JSR(uint16_t addr)
 {
-    mediator.write(0x100 + S--, PC >> 8);
-    mediator.write(0x100 + S--, PC);
+    bus->write(0x100 + S--, (PC-1) >> 8);
+    bus->write(0x100 + S--, (PC-1));
 
     PC = addr;
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::LDA(uint16_t addr)
 {
-    A = mediator.read(addr);
+    A = bus->read(addr);
 
     P.Z = A == 0;
     P.N = A & 0x80;
@@ -933,7 +1022,7 @@ void Cpu::LDA(uint16_t addr)
 
 void Cpu::LDX(uint16_t addr)
 {
-    X = mediator.read(addr);
+    X = bus->read(addr);
 
     P.Z = X == 0;
     P.N = X & 0x80;
@@ -941,7 +1030,7 @@ void Cpu::LDX(uint16_t addr)
 
 void Cpu::LDY(uint16_t addr)
 {
-    Y = mediator.read(addr);
+    Y = bus->read(addr);
 
     P.Z = Y == 0;
     P.N = Y & 0x80;
@@ -949,7 +1038,7 @@ void Cpu::LDY(uint16_t addr)
 
 void Cpu::LSR(uint16_t addr, AddrMode addrMode)
 {
-    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : mediator.read(addr);
+    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : bus->read(addr);
     uint8_t result = data >> 1;
 
     P.C = data & 0x01;
@@ -959,70 +1048,70 @@ void Cpu::LSR(uint16_t addr, AddrMode addrMode)
     if (addrMode == AddrMode::ACCUMULATOR) {
         A = result;
     } else {
-        mediator.write(addr, result);
-        mediator.tick();
+        bus->write(addr, result);
+        bus->tick();
     }
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::NOP(uint16_t addr)
 {
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::ORA(uint16_t addr)
 {
-    uint8_t result = A | mediator.read(addr);
-    mediator.write(addr, result);
+    A |= bus->read(addr);
 
-    P.Z = result == 0;
-    P.N = result & 0x80;
+    P.Z = A == 0;
+    P.N = A & 0x80;
 }
 
 void Cpu::PHA()
 {
-    mediator.write(0x100 + S--, A);
+    bus->write(0x100 + S--, A);
 
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::PHP()
 {
-    mediator.write(0x100 + S--, P.raw | 0x30);
+    bus->write(0x100 + S--, P.raw | 0x30);
 
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::PLA()
 {
-    A = mediator.read(0x100 + (++S));
+    A = bus->read(0x100 + (++S));
 
     P.Z = A == 0;
     P.N = A & 0x80;
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::PLP()
 {
-    P.raw = mediator.read(0x100 + (++S));
+    //Bits 4 and 5 are ignored
+    P.raw = (P.raw & 0x30) | (bus->read(0x100 + (++S)) & 0xCF);
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::ROL(uint16_t addr, AddrMode addrMode)
 {
-    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : mediator.read(addr);
+    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : bus->read(addr);
     uint8_t carry = P.C ? 1 : 0;
     P.C = data & 0x80;
-    uint8_t result = data << 1 + carry;
+    uint8_t result = (data << 1) + carry;
 
     P.Z = result == 0;
     P.N = result & 0x80;
@@ -1030,19 +1119,19 @@ void Cpu::ROL(uint16_t addr, AddrMode addrMode)
     if (addrMode == AddrMode::ACCUMULATOR) {
         A = result;
     } else {
-        mediator.write(addr, result);
-        mediator.tick();
+        bus->write(addr, result);
+        bus->tick();
     }
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::ROR(uint16_t addr, AddrMode addrMode)
 {
-    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : mediator.read(addr);
+    uint8_t data = addrMode == AddrMode::ACCUMULATOR ? A : bus->read(addr);
     uint8_t carry = (P.C ? 1 : 0) << 7;
-    P.C = data & 0x80;
-    uint8_t result = data >> 1 + carry;
+    P.C = data & 0x01;
+    uint8_t result = (data >> 1) + carry;
 
     P.Z = result == 0;
     P.N = result & 0x80;
@@ -1050,40 +1139,44 @@ void Cpu::ROR(uint16_t addr, AddrMode addrMode)
     if (addrMode == AddrMode::ACCUMULATOR) {
         A = result;
     } else {
-        mediator.write(addr, result);
-        mediator.tick();
+        bus->write(addr, result);
+        bus->tick();
     }
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::RTI()
 {
-    P.raw = mediator.read(0x100 + (++S));
-    PC = mediator.read(0x100 + (++S)) | (mediator.read(0x100 + (++S)) << 8);
+    P.raw = (P.raw & 0x30) | (bus->read(0x100 + (++S)) & 0xCF);
+    PC = bus->read(0x100 + (++S));
+    PC |= bus->read(0x100 + (++S)) << 8;
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 }
 
 void Cpu::RTS()
 {
-    PC = mediator.read(0x100 + (++S)) | (mediator.read(0x100 + (++S)) << 8) + 1;
+    PC = bus->read(0x100 + (++S));
+    PC |= (bus->read(0x100 + (++S)) << 8);
+    ++PC;
 
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
-    mediator.tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
+    bus->tick();
 }
 
-void Cpu::SBS(uint16_t addr)
+void Cpu::SBC(uint16_t addr)
 {
-    uint16_t result = A - mediator.read(addr) - (P.C ? 0 : 1);
-    uint8_t temp = -result - (P.C ? 0 : 1);
+    uint8_t mem = bus->read(addr);
+    uint16_t result = A - mem - (P.C ? 0 : 1);
+    uint8_t temp = -mem - (P.C ? 0 : 1);
 
     bool a = A & 0x80;
     bool b = temp & 0x80;
@@ -1095,43 +1188,43 @@ void Cpu::SBS(uint16_t addr)
 
     P.Z = A == 0;
     P.N = A & 0x80;
-    P.C = result > 0xFF;
+    P.C = result <= 0xFF;
 }
 
 void Cpu::SEC()
 {
     P.C = true;
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::SED()
 {
     P.D = true;
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::SEI()
 {
     P.I = true;
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::STA(uint16_t addr)
 {
-    mediator.write(addr, A);
-    mediator.tick();
+    bus->write(addr, A);
+    bus->tick();
 }
 
 void Cpu::STX(uint16_t addr)
 {
-    mediator.write(addr, X);
-    mediator.tick();
+    bus->write(addr, X);
+    bus->tick();
 }
 
 void Cpu::STY(uint16_t addr)
 {
-    mediator.write(addr, Y);
-    mediator.tick();
+    bus->write(addr, Y);
+    bus->tick();
 }
 
 void Cpu::TAX()
@@ -1141,7 +1234,7 @@ void Cpu::TAX()
     P.Z = X == 0;
     P.N = X & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::TAY()
@@ -1151,7 +1244,7 @@ void Cpu::TAY()
     P.Z = Y == 0;
     P.N = Y & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::TSX()
@@ -1161,7 +1254,7 @@ void Cpu::TSX()
     P.Z = X == 0;
     P.N = X & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::TXA()
@@ -1171,14 +1264,14 @@ void Cpu::TXA()
     P.Z = A == 0;
     P.N = A & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::TXS()
 {
-    X = S;
+    S = X;
 
-    mediator.tick();
+    bus->tick();
 }
 
 void Cpu::TYA()
@@ -1188,5 +1281,5 @@ void Cpu::TYA()
     P.Z = A == 0;
     P.N = A & 0x80;
 
-    mediator.tick();
+    bus->tick();
 }

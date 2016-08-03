@@ -1,19 +1,20 @@
-#ifndef NESMEDIATOR_H
-#define NESMEDIATOR_H
+#ifndef CPURAM_H
+#define CPURAM_H
 
 #include "imemory.h"
 
-//class CPU;
+#include <cstdint>
+#include <array>
 
-class NesMediator : public IMemory
+class CpuRam : public IMemory
 {
 public:
+    CpuRam();
+
     virtual uint8_t read(uint16_t addr) override;
     virtual void write(uint16_t addr, uint8_t data) override;
-
-    void tick();
 private:
-    //CPU* nes;
+    std::array<uint8_t, 0x0800> mem;
 };
 
 #endif

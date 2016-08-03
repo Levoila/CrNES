@@ -5,48 +5,17 @@
 #include <array>
 
 #include "bitfield.h"
-#include "nesmediator.h"
-
-enum class AddrMode
-{
-    IMPLICIT,
-    ACCUMULATOR,
-    IMMEDIATE,
-    ZERO_PAGE,
-    ZERO_PAGE_X,
-    ZERO_PAGE_Y,
-    RELATIVE,
-    ABSOLUTE,
-    ABSOLUTE_X,
-    ABSOLUTE_Y,
-    INDIRECT,
-    INDEXED_INDIRECT,
-    INDIRECT_INDEXED,
-    BAD_MODE
-};
-
-enum class Op
-{
-    ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI,
-    BNE, BPL, BRK, BVC, BVS, CLC, CLD, CLI,
-    CLV, CMP, CPX, CPY, DEC, DEX, DEY, EOR,
-    INC, INX, INY, JMP, JSR, LDA, LDX, LDY,
-    LSR, NOP, ORA, PHA, PHP, PLA, PLP, ROL,
-    ROR, RTI, RTS, SBC, SEC, SED, SEI, STA,
-    STX, STY, TAX, TAY, TSX, TXA, TXS, TYA,
-    BAD_OP
-};
-
-struct Opcode
-{
-    Op op;
-    AddrMode addrMode;
-};
+#include "cpubus.h"
+#include "cpulogger.h"
+#include "opdef.h"
 
 class Cpu
 {
 public:
     Cpu();
+
+    void tick();
+    void setMediator(CpuBus* mediator) { this->bus = mediator; }
 
 private:
     //Registers
@@ -57,14 +26,15 @@ private:
     uint8_t S;
     Bitfield P;
 
-    NesMediator mediator;
-
     unsigned int cycleCount;
     bool resetSignal;
 
-    std::array<Opcode, 0xFF> opcodes;
+    CpuBus* bus;
 
-    void tick();
+    std::array<Opcode, 0x100> opcodes;
+
+    CpuLogger logger;
+
     void executeOp(uint16_t addr, Opcode opcode);
     uint16_t getAddress(AddrMode addrMode);
     void generateOpcodes();
@@ -130,7 +100,7 @@ private:
     void ROR(uint16_t addr, AddrMode addrMode);
     void RTI();
     void RTS();
-    void SBS(uint16_t addr);
+    void SBC(uint16_t addr);
     void SEC();
     void SED();
     void SEI();
